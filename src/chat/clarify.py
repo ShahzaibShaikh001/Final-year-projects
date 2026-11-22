@@ -57,7 +57,7 @@ def clarify_prompt(
             {"role": "user", "content": "\n".join(user_bits)},
         ],
         temperature=0.2,
-        max_tokens=800,
+        max_tokens=400,
         json_mode=True,
     )
     data = parse_json_response(raw)

@@ -11,11 +11,13 @@ _ROOT = Path(__file__).resolve().parent.parent
 load_dotenv(_ROOT / ".env")
 
 GROQ_API_KEY: str = os.getenv("GROQ_API_KEY", "").strip()
-GROQ_MODEL: str = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile").strip()
+# Cheapest general-purpose Groq production model (good for demos / free-tier limits)
+GROQ_MODEL: str = os.getenv("GROQ_MODEL", "openai/gpt-oss-20b").strip()
 SERPAPI_KEY: str = os.getenv("SERPAPI_KEY", "").strip()
 IEEE_API_KEY: str = os.getenv("IEEE_API_KEY", "").strip()
 
-DEFAULT_PAPER_COUNT = 1
+# Default 2 so demos show one Google Scholar + one IEEE result
+DEFAULT_PAPER_COUNT = 2
 MIN_PAPER_COUNT = 1
 MAX_PAPER_COUNT = 20
 DEFAULT_YEAR_FROM = 2020

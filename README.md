@@ -1,19 +1,12 @@
-# Research Paper Search + Chat (Groq)
+# Researcher — Paper Search + Chat
 
-Search open-access papers on **Google Scholar** and **IEEE Access**, open the links, and chat using the **public abstract** via **Groq**.
+Figma-style chat UI (Chat A.I.+) for searching open-access papers on **Google Scholar** and **IEEE Access**, then chatting from the **public abstract** via **Groq**.
 
-Simple design: **search + links + abstract chat**. No PDF download.
+## Stack
 
-## Features
-
-- Any research topic
-- Groq clarifies vague prompts before searching
-- Default **1** paper; set N (or say “5 papers” in the prompt)
-- Year filter
-- Open-access preference
-- Chat from title / abstract / metadata only
-
-> Full-text download for deeper summaries can be added later if a supervisor needs it.
+- **Frontend:** Vite + React (`frontend/`) — chat screen only
+- **Backend:** FastAPI (`api/main.py`) wrapping search / clarify / chat
+- **Branch:** `frontend-v1`
 
 ## Setup
 
@@ -25,30 +18,39 @@ pip install -r requirements.txt
 copy .env.example .env
 ```
 
-Edit `.env` and set `GROQ_API_KEY` from [console.groq.com](https://console.groq.com/).
+Set `GROQ_API_KEY` in `.env`.
 
-Optional:
-
-- `SERPAPI_KEY` — better Google Scholar results
-- `IEEE_API_KEY` — official IEEE Xplore API
-- `CONTACT_EMAIL` — polite ID for free academic APIs (Crossref / OpenAlex)
-
-Without optional keys, search still works via public fallbacks.
+```powershell
+cd frontend
+npm install
+```
 
 ## Run
 
+Terminal 1 — API:
+
 ```powershell
 .\venv\Scripts\Activate.ps1
-streamlit run app.py
+python -m uvicorn api.main:app --reload --port 8000
 ```
 
-## Project layout
+Terminal 2 — UI:
 
+```powershell
+cd frontend
+npm run dev
 ```
-app.py
-src/
-  config.py
-  models.py
-  chat/      # clarify + abstract chat
-  search/    # Scholar + IEEE + merge
-```
+
+Open http://localhost:5173
+
+## Filters (brain icon)
+
+In the message bar, click the **brain** icon to set:
+
+- **Year**
+- **Number of papers**
+
+## Notes
+
+- Open-access preference; no PDF download
+- Chat answers use title + public abstract only

@@ -20,7 +20,7 @@ def chat_completion(
     *,
     model: Optional[str] = None,
     temperature: float = 0.3,
-    max_tokens: int = 2048,
+    max_tokens: int = 512,
     json_mode: bool = False,
 ) -> str:
     client = get_client()

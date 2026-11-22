@@ -44,4 +44,4 @@ def answer_about_paper(
             "content": f"Paper metadata and abstract:\n{meta}\n\nQuestion: {question}",
         }
     )
-    return chat_completion(messages, temperature=0.2, max_tokens=1200)
+    return chat_completion(messages, temperature=0.2, max_tokens=500)

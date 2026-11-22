@@ -1,4 +1,4 @@
-"""IEEE Access open-access paper search."""
+"""IEEE Access / IEEE Xplore open-access paper search."""
 
 from __future__ import annotations
 
@@ -32,14 +32,31 @@ def search_ieee(
 
     if IEEE_API_KEY:
         try:
-            return _search_ieee_api(query, year=year, limit=limit)
+            papers = _search_ieee_api(query, year=year, limit=limit)
+            if papers:
+                return papers
         except Exception:
             pass
 
     try:
-        return _search_crossref_ieee_access(query, year=year, limit=limit)
+        papers = _search_crossref_ieee_access(query, year=year, limit=limit)
+        if papers:
+            return papers
+    except Exception:
+        pass
+
+    try:
+        return _search_openalex_ieee(query, year=year, limit=limit)
     except Exception:
         return []
+
+
+def _ieee_explore_url(doi: str, article_number: str = "") -> str:
+    if article_number:
+        return f"https://ieeexplore.ieee.org/document/{article_number}"
+    if doi:
+        return f"https://doi.org/{doi}"
+    return ""
 
 
 @retry(stop=stop_after_attempt(2), wait=wait_exponential(multiplier=1, min=1, max=4), reraise=True)
@@ -73,12 +90,8 @@ def _search_ieee_api(query: str, *, year: Optional[int], limit: int) -> list[Pap
         html_url = item.get("html_url") or ""
         abstract_url = item.get("abstract_url") or ""
         doi = item.get("doi") or ""
-        url = html_url or abstract_url
-        if not url and doi:
-            url = f"https://doi.org/{doi}"
-        if not pdf_url and doi:
-            # IEEE OA often available via Xplore document page
-            pdf_url = ""
+        art_num = str(item.get("article_number") or "")
+        url = html_url or abstract_url or _ieee_explore_url(doi, art_num)
 
         year_val = None
         py = item.get("publication_year") or item.get("publication_date")
@@ -108,7 +121,7 @@ def _search_ieee_api(query: str, *, year: Optional[int], limit: int) -> list[Pap
 def _search_crossref_ieee_access(
     query: str, *, year: Optional[int], limit: int
 ) -> list[Paper]:
-    """Fallback: Crossref restricted to IEEE Access + Unpaywall OA PDF."""
+    """Crossref restricted to IEEE Access."""
     filters = ["container-title:IEEE Access"]
     if year is not None:
         filters.append(f"from-pub-date:{year}")
@@ -134,22 +147,19 @@ def _search_crossref_ieee_access(
             if not title:
                 continue
             container = " ".join(item.get("container-title") or []).lower()
-            if "ieee access" not in container and "ieee access" not in title.lower():
-                # Crossref filter is soft; enforce
-                if "ieee" not in container:
-                    continue
+            if "ieee access" not in container:
+                continue
 
             doi = item.get("DOI") or ""
             authors = _format_crossref_authors(item.get("author") or [])
             year_val = _crossref_year(item)
             abstract = _strip_jats(item.get("abstract") or "")
-            url = item.get("URL") or (f"https://doi.org/{doi}" if doi else "")
+            url = _ieee_explore_url(doi) or item.get("URL") or ""
 
             pdf_url = _pdf_from_crossref_links(item.get("link") or [])
             if not pdf_url and doi:
                 pdf_url = _unpaywall_pdf(client, doi) or ""
 
-            # IEEE Access is an open-access journal; keep DOI hits even without PDF yet
             if not doi and not pdf_url:
                 continue
 
@@ -167,15 +177,100 @@ def _search_crossref_ieee_access(
             )
             if len(papers) >= limit:
                 break
-
-        # Second pass: fill missing PDFs via Unpaywall
-        for paper in papers:
-            if paper.pdf_url or not paper.doi:
-                continue
-            pdf = _unpaywall_pdf(client, paper.doi)
-            if pdf:
-                paper.pdf_url = pdf
         return papers
+
+
+def _search_openalex_ieee(query: str, *, year: Optional[int], limit: int) -> list[Paper]:
+    """OpenAlex fallback filtered to IEEE Access."""
+    filters = [
+        "is_oa:true",
+        "primary_location.source.display_name:IEEE Access",
+    ]
+    if year is not None:
+        filters.append(f"publication_year:{year}")
+
+    params = {
+        "search": query,
+        "filter": ",".join(filters),
+        "per_page": min(limit * 2, 25),
+        "mailto": CONTACT_EMAIL,
+    }
+    with httpx.Client(timeout=30.0, headers=_HEADERS) as client:
+        resp = client.get("https://api.openalex.org/works", params=params)
+        if resp.status_code >= 400:
+            # Broader host filter if display_name filter fails
+            filters = ["is_oa:true", "primary_location.source.host_organization_name:IEEE"]
+            if year is not None:
+                filters.append(f"publication_year:{year}")
+            params["filter"] = ",".join(filters)
+            resp = client.get("https://api.openalex.org/works", params=params)
+            if resp.status_code >= 400:
+                return []
+        data = resp.json()
+
+    papers: list[Paper] = []
+    for item in data.get("results") or []:
+        title = (item.get("display_name") or "").strip()
+        if not title:
+            continue
+        primary = item.get("primary_location") or {}
+        source = primary.get("source") or {}
+        source_name = (source.get("display_name") or "").lower()
+        # Prefer IEEE Access; allow other IEEE OA if Access filter was soft
+        if "ieee" not in source_name and "ieee" not in title.lower():
+            continue
+
+        doi = (item.get("doi") or "").replace("https://doi.org/", "").strip()
+        oa = item.get("open_access") or {}
+        best = item.get("best_oa_location") or {}
+        pdf_url = (
+            (best.get("pdf_url") or "").strip()
+            or (primary.get("pdf_url") or "").strip()
+            or (oa.get("oa_url") or "").strip()
+        )
+        landing = (
+            (primary.get("landing_page_url") or "").strip()
+            or (best.get("landing_page_url") or "").strip()
+            or _ieee_explore_url(doi)
+        )
+        authors = ", ".join(
+            ((a.get("author") or {}).get("display_name") or "")
+            for a in (item.get("authorships") or [])
+        )
+        authors = ", ".join(p.strip() for p in authors.split(",") if p.strip())
+        y = item.get("publication_year")
+        abstract = _openalex_abstract(item.get("abstract_inverted_index"))
+
+        label = "IEEE Access" if "access" in source_name else "IEEE Xplore"
+        papers.append(
+            Paper(
+                title=title,
+                authors=authors,
+                year=int(y) if y else None,
+                abstract=abstract,
+                source=label,
+                url=landing,
+                pdf_url=pdf_url,
+                doi=doi,
+            )
+        )
+        if len(papers) >= limit:
+            break
+    return papers
+
+
+def _openalex_abstract(inverted: Optional[dict]) -> str:
+    if not inverted or not isinstance(inverted, dict):
+        return ""
+    try:
+        max_pos = max(pos for positions in inverted.values() for pos in positions)
+        words = [""] * (max_pos + 1)
+        for word, positions in inverted.items():
+            for pos in positions:
+                words[pos] = word
+        return " ".join(words).strip()
+    except Exception:
+        return ""
 
 
 def _unpaywall_pdf(client: httpx.Client, doi: str) -> Optional[str]:
